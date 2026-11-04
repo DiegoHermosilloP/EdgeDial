@@ -12,7 +12,13 @@ final class DialController: GestureEngineDelegate {
     private let noop = NoopControl()
 
     private var device: MultitouchDevice?
-    private var stallTimer: Timer?
+    private var healthTimer: Timer?
+    /// When a frame last arrived, on a clock we control.
+    private var lastFrameAt: Double = ProcessInfo.processInfo.systemUptime
+    private var lastRecoveryAt: Double = 0
+    /// Grows when a rebuild does not bring frames back, so a Mac driven by an
+    /// external mouse does not rebuild the device every few seconds forever.
+    private var recoveryBackoff: Double = 5
 
     /// Level of the dial currently being dragged, kept locally so a slide feels
     /// continuous even where the underlying control quantises what it stores.
@@ -44,21 +50,16 @@ final class DialController: GestureEngineDelegate {
             return
         }
         do {
-            let device = try MultitouchDevice()
-            device.onFrame = { [weak self] frame in
-                // Frames arrive on the multitouch thread; all state lives on main.
-                DispatchQueue.main.async { self?.engine.handle(frame: frame) }
-            }
-            device.start()
-            self.device = device
+            try buildDevice()
             self.startupError = nil
         } catch {
             startupError = error.localizedDescription
             return
         }
 
-        stallTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        healthTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             self?.engine.checkForStall()
+            self?.checkStreamHealth()
         }
 
         let center = NSWorkspace.shared.notificationCenter
@@ -73,8 +74,8 @@ final class DialController: GestureEngineDelegate {
     func stop() {
         engine.cancel()
         unfreezeCursor()
-        stallTimer?.invalidate()
-        stallTimer = nil
+        healthTimer?.invalidate()
+        healthTimer = nil
         device?.stop()
         device = nil
         NSWorkspace.shared.notificationCenter.removeObserver(self)
@@ -93,15 +94,80 @@ final class DialController: GestureEngineDelegate {
     }
 
     @objc private func handleWake() {
-        // The multitouch stream can come back dead after a sleep.
         engine.cancel()
         unfreezeCursor()
-        device?.restart()
+        // Do not rebuild immediately: on wake the trackpad is often not ready
+        // yet, and a rebuild that lands too early fails silently and is never
+        // retried — which is exactly how the dials used to go dead after a
+        // lid-close. Clear the backoff and let the health check settle it.
+        recoveryBackoff = 5
+        lastRecoveryAt = 0
+        lastFrameAt = ProcessInfo.processInfo.systemUptime
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.checkStreamHealth(force: true)
+        }
     }
 
     @objc private func handleSleep() {
         engine.cancel()
         unfreezeCursor()
+    }
+
+    // MARK: - Keeping the stream alive
+
+    private func buildDevice() throws {
+        device?.stop()
+        device = nil
+
+        let device = try MultitouchDevice()
+        device.onFrame = { [weak self] frame in
+            // Frames arrive on the multitouch thread; all state lives on main.
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.lastFrameAt = ProcessInfo.processInfo.systemUptime
+                self.engine.handle(frame: frame)
+            }
+        }
+        device.start()
+        self.device = device
+        lastFrameAt = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func checkStreamHealth(force: Bool = false) {
+        guard let device, startupError == nil else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+
+        // The pointer only moves on a laptop because a finger is on the glass,
+        // so recent pointer activity means frames ought to be arriving.
+        let pointerIdle = min(
+            CGEventSource.secondsSinceLastEventType(
+                .hidSystemState, eventType: .mouseMoved),
+            CGEventSource.secondsSinceLastEventType(
+                .hidSystemState, eventType: .scrollWheel))
+
+        let verdict = StreamHealth.assess(
+            deviceReportsRunning: device.isStreamLive,
+            secondsSinceLastFrame: now - lastFrameAt,
+            secondsSincePointerInput: pointerIdle)
+
+        guard force || verdict != .healthy else {
+            recoveryBackoff = 5
+            return
+        }
+        guard force || now - lastRecoveryAt >= recoveryBackoff else { return }
+        if verdict == .healthy, !force { return }
+
+        lastRecoveryAt = now
+        do {
+            // A fresh device, not a restart of the old handle: after a sleep the
+            // old one can be past saving, and starting it again reports success
+            // while delivering nothing.
+            try buildDevice()
+        } catch {
+            startupError = error.localizedDescription
+        }
+        // If the rebuild does not bring frames back, try less often.
+        recoveryBackoff = min(recoveryBackoff * 2, 120)
     }
 
     // MARK: - Dial wiring

@@ -399,3 +399,72 @@ final class HUDIconTests: XCTestCase {
         XCTAssertNotNil(HUD.symbol(for: .volume, value: 2))
     }
 }
+
+/// Recovering a dead trackpad stream is only safe if "nobody is touching the
+/// trackpad" is never mistaken for "the stream died" — that is the normal
+/// state and rebuilding on it would thrash forever.
+final class StreamHealthTests: XCTestCase {
+    func testFramesArrivingIsHealthy() {
+        XCTAssertEqual(
+            StreamHealth.assess(
+                deviceReportsRunning: true,
+                secondsSinceLastFrame: 0.1,
+                secondsSincePointerInput: 0.1),
+            .healthy)
+    }
+
+    func testIdleMacIsHealthyNoMatterHowLongTheSilence() {
+        // Hours without a frame because nobody is at the machine.
+        XCTAssertEqual(
+            StreamHealth.assess(
+                deviceReportsRunning: true,
+                secondsSinceLastFrame: 7200,
+                secondsSincePointerInput: 7200),
+            .healthy)
+    }
+
+    func testPointerMovingWithNoFramesMeansTheStreamDied() {
+        // The giveaway: the pointer is being driven, so a finger is on the
+        // glass, so frames must exist. They do not.
+        XCTAssertEqual(
+            StreamHealth.assess(
+                deviceReportsRunning: true,
+                secondsSinceLastFrame: 30,
+                secondsSincePointerInput: 0.2),
+            .silentlyDead)
+    }
+
+    func testDeviceReportingStoppedIsAlwaysRecovered() {
+        XCTAssertEqual(
+            StreamHealth.assess(
+                deviceReportsRunning: false,
+                secondsSinceLastFrame: 0,
+                secondsSincePointerInput: 0),
+            .deviceStopped)
+    }
+
+    func testBriefSilenceDuringNormalUseIsNotAFailure() {
+        // Pausing mid-gesture must not trigger a rebuild.
+        XCTAssertEqual(
+            StreamHealth.assess(
+                deviceReportsRunning: true,
+                secondsSinceLastFrame: StreamHealth.silenceThreshold - 0.1,
+                secondsSincePointerInput: 0.1),
+            .healthy)
+    }
+
+    func testStalePointerActivityDoesNotCount() {
+        // An external mouse moved a while ago; that says nothing about now.
+        XCTAssertEqual(
+            StreamHealth.assess(
+                deviceReportsRunning: true,
+                secondsSinceLastFrame: 60,
+                secondsSincePointerInput: StreamHealth.pointerActivityWindow + 0.1),
+            .healthy)
+    }
+
+    func testThresholdsAreTheOnesWeIntend() {
+        XCTAssertEqual(StreamHealth.silenceThreshold, 5)
+        XCTAssertEqual(StreamHealth.pointerActivityWindow, 1.5)
+    }
+}

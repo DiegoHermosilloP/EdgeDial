@@ -91,7 +91,12 @@ final class MultitouchDevice {
     private static weak var active: MultitouchDevice?
 
     private let handle: UnsafeMutableRawPointer
+    /// Strong reference to the device object when it came from
+    /// MTDeviceCreateList. The framework keeps one of its own, but relying on
+    /// that would mean storing a raw pointer to something we do not own.
+    private let deviceObject: AnyObject?
     private let device: MTDeviceRef
+    private let deviceIsRunning: MTDeviceIsRunningFn?
     private let registerCallback: MTRegisterContactFrameCallbackFn
     private let unregisterCallback: MTUnregisterContactFrameCallbackFn
     private let startDevice: MTDeviceStartFn
@@ -132,9 +137,11 @@ final class MultitouchDevice {
         // Prefer the device list: on machines with both a trackpad and a Magic
         // Mouse, CreateDefault does not always pick the built-in trackpad.
         var resolved: MTDeviceRef?
+        var owner: AnyObject?
         if let createList = dlsym(handle, "MTDeviceCreateList") {
             let fn = unsafeBitCast(createList, to: MTDeviceCreateListFn.self)
             if let list = fn() as [AnyObject]?, let first = list.first {
+                owner = first
                 resolved = Unmanaged.passUnretained(first).toOpaque()
             }
         }
@@ -143,7 +150,11 @@ final class MultitouchDevice {
             resolved = fn()
         }
         guard let device = resolved else { throw MultitouchError.noDevice }
+        self.deviceObject = owner
         self.device = device
+        self.deviceIsRunning = dlsym(handle, "MTDeviceIsRunning").map {
+            unsafeBitCast($0, to: MTDeviceIsRunningFn.self)
+        }
     }
 
     func start() {
@@ -162,10 +173,12 @@ final class MultitouchDevice {
         isRunning = false
     }
 
-    /// Re-arms the device after a wake from sleep, where the stream can die silently.
-    func restart() {
-        stop()
-        start()
+    /// What the framework itself says about the stream, as opposed to our own
+    /// bookkeeping. The two disagree exactly when the stream has died under us,
+    /// which is the case worth detecting.
+    var isStreamLive: Bool {
+        guard let deviceIsRunning else { return isRunning }
+        return deviceIsRunning(device)
     }
 
     private static let frameCallback: MTContactCallback = { _, data, count, timestamp, _ in

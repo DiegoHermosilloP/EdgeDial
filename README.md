@@ -143,6 +143,20 @@ Prints whether the trackpad is readable, whether brightness and volume can be
 driven, whether the volume tick sound was found, and ten seconds of live finger
 coordinates. Useful after a macOS update.
 
+## Surviving sleep
+
+The trackpad stream does not always come back after the Mac sleeps — close the
+lid a few times and the dials would go quiet while the app sat there apparently
+fine. EdgeDial now checks the stream every two seconds and rebuilds the device
+from scratch when it has died, rather than restarting the old handle, which
+after a sleep can report success while delivering nothing.
+
+Telling "dead" from "nobody is touching the trackpad" is the tricky part, since
+silence is the normal state. The tell is silence *while the pointer is moving*:
+on a laptop the pointer only moves because a finger is on the glass, so frames
+must be arriving. Rebuilds also back off if they do not restore frames, so a
+Mac driven by an external mouse does not rebuild forever.
+
 ## Limits
 
 - Brightness applies to the built-in display. External monitors need DDC, which
