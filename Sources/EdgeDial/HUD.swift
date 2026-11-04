@@ -8,6 +8,9 @@ import AppKit
 final class HUD {
     private enum Metrics {
         static let size = CGSize(width: 248, height: 62)
+        /// Wide enough for the widest glyph used, so nothing is ever scaled to
+        /// fit. `speaker.wave.3.fill` is 34pt across at this point size.
+        static let iconSize = CGSize(width: 34, height: 26)
         static let bottomInset: CGFloat = 148
         static let cornerRadius: CGFloat = 31
         static let visibleDuration: TimeInterval = 0.85
@@ -46,7 +49,10 @@ final class HUD {
         blur.layer?.masksToBounds = true
         blur.autoresizingMask = [.width, .height]
 
-        iconView.imageScaling = .scaleProportionallyUpOrDown
+        // Never scale. Fitting a glyph to a square box is what made the
+        // speaker shrink as the volume rose: the wave variants are wider than
+        // they are tall, so the wider ones were squeezed down.
+        iconView.imageScaling = .scaleNone
         iconView.contentTintColor = .labelColor
         iconView.translatesAutoresizingMaskIntoConstraints = false
         barView.translatesAutoresizingMaskIntoConstraints = false
@@ -56,8 +62,8 @@ final class HUD {
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: blur.leadingAnchor, constant: 22),
             iconView.centerYAnchor.constraint(equalTo: blur.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 26),
-            iconView.heightAnchor.constraint(equalToConstant: 26),
+            iconView.widthAnchor.constraint(equalToConstant: Metrics.iconSize.width),
+            iconView.heightAnchor.constraint(equalToConstant: Metrics.iconSize.height),
 
             barView.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 18),
             barView.trailingAnchor.constraint(equalTo: blur.trailingAnchor, constant: -22),
@@ -124,27 +130,38 @@ final class HUD {
         panel.setFrame(CGRect(origin: origin, size: Metrics.size), display: false)
     }
 
-    private static func symbol(for action: DialAction, value: Double) -> NSImage? {
-        let name: String
-        switch action {
-        case .brightness:
-            name = value < 0.34 ? "sun.min.fill" : (value < 0.67 ? "sun.max.fill" : "sun.max.fill")
-        case .volume:
-            if value <= 0.001 {
-                name = "speaker.slash.fill"
-            } else if value < 0.34 {
-                name = "speaker.wave.1.fill"
-            } else if value < 0.67 {
-                name = "speaker.wave.2.fill"
-            } else {
-                name = "speaker.wave.3.fill"
-            }
-        case .none:
-            name = "questionmark"
-        }
+    /// One glyph per action, never swapped mid-slide.
+    ///
+    /// The level is shown with SF Symbols' variable value, which lights the
+    /// wave layers progressively while leaving the geometry untouched — the
+    /// speaker body stays exactly where and what it was at every volume.
+    /// Swapping between `speaker.wave.1/2/3.fill` cannot do that: they are
+    /// 24, 29 and 34pt wide, so the icon jumped in size at each threshold.
+    static func symbol(for action: DialAction, value: Double) -> NSImage? {
         let config = NSImage.SymbolConfiguration(pointSize: 20, weight: .medium)
-        return NSImage(systemSymbolName: name, accessibilityDescription: action.displayName)?
-            .withSymbolConfiguration(config)
+        let level = min(max(value, 0), 1)
+
+        switch action {
+        case .volume:
+            return NSImage(
+                systemSymbolName: "speaker.wave.3.fill",
+                variableValue: level,
+                accessibilityDescription: action.displayName)?
+                .withSymbolConfiguration(config)
+        case .brightness:
+            // No variable-value equivalent for the sun, and swapping
+            // sun.min/sun.max resizes it for the same reason. The bar carries
+            // the level.
+            return NSImage(
+                systemSymbolName: "sun.max.fill",
+                accessibilityDescription: action.displayName)?
+                .withSymbolConfiguration(config)
+        case .none:
+            return NSImage(
+                systemSymbolName: "questionmark",
+                accessibilityDescription: action.displayName)?
+                .withSymbolConfiguration(config)
+        }
     }
 }
 

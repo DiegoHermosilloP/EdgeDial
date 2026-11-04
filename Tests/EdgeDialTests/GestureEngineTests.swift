@@ -356,3 +356,46 @@ final class VolumeStepTests: XCTestCase {
         XCTAssertEqual(VolumeStep.index(for: 5), 16)
     }
 }
+
+/// The indicator icon used to resize as the level changed, because the
+/// speaker.wave.1/2/3 glyphs are 24, 29 and 34pt wide and were being scaled to
+/// fit a square box. Nothing about the glyph may depend on the level now.
+final class HUDIconTests: XCTestCase {
+    private func sizes(for action: DialAction) -> [CGSize] {
+        stride(from: 0.0, through: 1.0, by: 0.05).compactMap {
+            HUD.symbol(for: action, value: $0)?.size
+        }
+    }
+
+    func testVolumeIconIsTheSameSizeAtEveryLevel() {
+        let sizes = self.sizes(for: .volume)
+        XCTAssertEqual(sizes.count, 21, "every level should produce an icon")
+        XCTAssertEqual(Set(sizes.map(\.width)).count, 1, "width must not vary with volume")
+        XCTAssertEqual(Set(sizes.map(\.height)).count, 1, "height must not vary with volume")
+    }
+
+    func testBrightnessIconIsTheSameSizeAtEveryLevel() {
+        let sizes = self.sizes(for: .brightness)
+        XCTAssertEqual(Set(sizes.map(\.width)).count, 1)
+        XCTAssertEqual(Set(sizes.map(\.height)).count, 1)
+    }
+
+    func testEveryIconFitsTheBoxWithoutScaling() {
+        // If a glyph outgrew the box it would be clipped, or tempt a future
+        // change back to proportional scaling.
+        for action in [DialAction.volume, .brightness, .none] {
+            for value in [0.0, 0.5, 1.0] {
+                guard let size = HUD.symbol(for: action, value: value)?.size else {
+                    XCTFail("no icon for \(action)"); continue
+                }
+                XCTAssertLessThanOrEqual(size.width, 34, "\(action) too wide")
+                XCTAssertLessThanOrEqual(size.height, 26, "\(action) too tall")
+            }
+        }
+    }
+
+    func testLevelsOutsideTheRangeStillProduceAnIcon() {
+        XCTAssertNotNil(HUD.symbol(for: .volume, value: -1))
+        XCTAssertNotNil(HUD.symbol(for: .volume, value: 2))
+    }
+}
