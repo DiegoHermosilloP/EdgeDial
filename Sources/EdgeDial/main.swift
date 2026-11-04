@@ -5,6 +5,11 @@ if CommandLine.arguments.contains("--probe") {
     exit(0)
 }
 
+if CommandLine.arguments.contains("--test-controls") {
+    runControlTest()
+    exit(0)
+}
+
 // Restore the pointer even if the app is killed mid-gesture.
 for signalNumber in [SIGINT, SIGTERM, SIGHUP] {
     signal(signalNumber) { _ in

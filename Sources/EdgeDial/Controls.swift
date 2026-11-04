@@ -160,3 +160,128 @@ final class NoopControl: LevelControl {
     func read() -> Double? { nil }
     func write(_ value: Double) {}
 }
+
+// MARK: - Keyboard backlight
+
+/// Keyboard backlight through CoreBrightness. Same private-framework caveat as
+/// `BrightnessControl`, and the same reason: the alternative is synthesising
+/// the backlight keys, which would cost an Accessibility grant.
+final class KeyboardBacklightControl: LevelControl {
+    @objc private protocol KeyboardBrightnessClientProtocol {
+        @objc(copyKeyboardBacklightIDs)
+        func copyKeyboardBacklightIDs() -> NSArray?
+        @objc(isKeyboardBuiltIn:)
+        func isKeyboardBuiltIn(_ keyboardID: UInt64) -> Bool
+        @objc(brightnessForKeyboard:)
+        func brightness(forKeyboard keyboardID: UInt64) -> Float
+        @objc(setBrightness:forKeyboard:)
+        func setBrightness(_ value: Float, forKeyboard keyboardID: UInt64) -> Bool
+    }
+
+    private let client: KeyboardBrightnessClientProtocol?
+    private let keyboardID: UInt64?
+
+    init() {
+        _ = dlopen(
+            "/System/Library/PrivateFrameworks/CoreBrightness.framework/CoreBrightness", RTLD_LAZY)
+        guard let type = NSClassFromString("KeyboardBrightnessClient") as? NSObject.Type else {
+            client = nil
+            keyboardID = nil
+            return
+        }
+        let instance = type.init()
+        let typed = unsafeBitCast(instance, to: KeyboardBrightnessClientProtocol.self)
+        client = typed
+
+        // A Mac with no backlit keyboard reports no IDs at all.
+        let ids = (typed.copyKeyboardBacklightIDs() as? [NSNumber])?.map(\.uint64Value) ?? []
+        keyboardID = ids.first(where: { typed.isKeyboardBuiltIn($0) }) ?? ids.first
+    }
+
+    var isAvailable: Bool { client != nil && keyboardID != nil }
+
+    func read() -> Double? {
+        guard let client, let keyboardID else { return nil }
+        let value = client.brightness(forKeyboard: keyboardID)
+        return value.isFinite && value >= 0 ? Double(value) : nil
+    }
+
+    func write(_ value: Double) {
+        guard let client, let keyboardID else { return }
+        _ = client.setBrightness(Float(min(max(value, 0), 1)), forKeyboard: keyboardID)
+    }
+}
+
+// MARK: - Night Shift
+
+/// Night Shift warmth. Strength alone is invisible while Night Shift is off, so
+/// the dial switches it on as soon as you slide up from zero and off again when
+/// you slide back down — otherwise the first half of the gesture would appear
+/// to do nothing.
+final class NightShiftControl: LevelControl {
+    @objc private protocol BlueLightClientProtocol {
+        @objc(setStrength:commit:)
+        func setStrength(_ strength: Float, commit: Bool) -> Bool
+        @objc(getStrength:)
+        func getStrength(_ strength: UnsafeMutablePointer<Float>) -> Bool
+        @objc(setEnabled:)
+        func setEnabled(_ enabled: Bool) -> Bool
+        @objc(getBlueLightStatus:)
+        func getBlueLightStatus(_ status: UnsafeMutableRawPointer) -> Bool
+    }
+
+    /// Below this, treat the dial as off rather than imperceptibly warm.
+    private static let onThreshold = 0.02
+
+    private let client: BlueLightClientProtocol?
+    private var isOn = false
+
+    init() {
+        _ = dlopen(
+            "/System/Library/PrivateFrameworks/CoreBrightness.framework/CoreBrightness", RTLD_LAZY)
+        guard let type = NSClassFromString("CBBlueLightClient") as? NSObject.Type else {
+            client = nil
+            return
+        }
+        client = unsafeBitCast(type.init(), to: BlueLightClientProtocol.self)
+    }
+
+    var isAvailable: Bool { client != nil && read() != nil }
+
+    /// The status struct's layout is undocumented, so rather than declare it,
+    /// hand over a generous zeroed buffer and read only `active`, which is the
+    /// first byte and the one field whose position is not in doubt.
+    private func isActive() -> Bool {
+        guard let client else { return false }
+        let size = 256
+        let buffer = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 16)
+        defer { buffer.deallocate() }
+        buffer.initializeMemory(as: UInt8.self, repeating: 0, count: size)
+        guard client.getBlueLightStatus(buffer) else { return false }
+        return buffer.load(as: UInt8.self) != 0
+    }
+
+    func read() -> Double? {
+        guard let client else { return nil }
+        var strength: Float = 0
+        guard client.getStrength(&strength) else { return nil }
+        isOn = isActive()
+        // Night Shift remembers a strength while switched off; reporting that
+        // would start the dial somewhere the screen plainly is not.
+        return isOn ? Double(strength) : 0
+    }
+
+    func write(_ value: Double) {
+        guard let client else { return }
+        let clamped = min(max(value, 0), 1)
+        let shouldBeOn = clamped > NightShiftControl.onThreshold
+
+        if shouldBeOn != isOn {
+            _ = client.setEnabled(shouldBeOn)
+            isOn = shouldBeOn
+        }
+        if shouldBeOn {
+            _ = client.setStrength(Float(clamped), commit: true)
+        }
+    }
+}

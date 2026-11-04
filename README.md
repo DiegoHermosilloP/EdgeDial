@@ -44,6 +44,30 @@ The tradeoff is false positives, so the gesture is deliberately fussy:
 While a dial is live, the pointer is pinned in place so your slide doesn't drag
 the cursor across the screen.
 
+## What a dial can control
+
+Each edge can be pointed at any of these. Defaults are brightness on the left
+and volume on the right; everything else is opt-in and changes nothing until
+you pick it.
+
+| Action | Notes |
+| --- | --- |
+| **Screen Brightness** | Built-in display |
+| **Volume** | Default output device; sliding up from zero also unmutes |
+| **Keyboard Backlight** | Built-in keyboard. macOS ambient adjustment may move it again later |
+| **Night Shift Warmth** | Sliding up from zero switches Night Shift on, sliding back to zero switches it off — strength alone is invisible while it's off |
+
+An action the Mac can't drive is shown greyed out and marked *unavailable*
+rather than silently doing nothing.
+
+### A note on two- and three-finger mode
+
+Raising **Fingers** to 2 makes accidental arming almost impossible, but it has a
+real cost: two fingers resting and sliding is also how macOS scrolls, so
+whatever is under the pointer scrolls while you work the dial. EdgeDial can't
+suppress that without an event tap, which would mean requiring Accessibility
+permission for the whole app. One finger stays the default for this reason.
+
 ## Install
 
 Requires macOS 13 or later and Xcode command line tools.
@@ -65,8 +89,9 @@ Most things are in the menu bar:
 | Item | What it does |
 | --- | --- |
 | **Enabled** | Master switch |
-| **Left Edge** / **Right Edge** | Brightness, Volume, or Nothing |
+| **Left Edge** / **Right Edge** | Screen Brightness, Volume, Keyboard Backlight, Night Shift Warmth, or Nothing |
 | **Hold Delay** | How long a finger must rest before a dial arms, 150–700 ms |
+| **Fingers** | How many fingers the gesture needs, 1–3 |
 | **Slide Up Decreases** | Flips the direction |
 | **Show Indicator** | EdgeDial's own on-screen level bar |
 | **Haptic Feedback** | Tick when a dial arms and at the ends of the range |
@@ -82,7 +107,6 @@ Everything else lives in
 | `leftZoneWidth` / `rightZoneWidth` | `0.18` | Edge strip width, as a fraction of trackpad width |
 | `dwellJitter` | `0.035` | How far the finger may drift during the dwell before being disqualified |
 | `sensitivity` | `1.5` | Range covered by sliding the full height of the trackpad |
-| `requiredFingerCount` | `1` | Fingers the gesture needs; `2` makes accidental arming nearly impossible |
 | `minimumTouchSize` | `0.08` | Rejects stray brushes |
 | `hudSegments` | `16` | Segments in the level bar; `0` draws a continuous bar |
 
@@ -102,6 +126,8 @@ If a dial arms when you didn't mean it, raise **Hold Delay** or lower
 | --- | --- | --- |
 | Raw finger positions | `MultitouchSupport.framework` | none |
 | Brightness | `DisplayServices.framework` | none |
+| Keyboard backlight | `CoreBrightness.framework` (`KeyboardBrightnessClient`) | none |
+| Night Shift | `CoreBrightness.framework` (`CBBlueLightClient`) | none |
 | Volume | CoreAudio (`kAudioDevicePropertyVolumeScalar`) | none |
 | Holding the pointer still | `CGAssociateMouseAndMouseCursorPosition` | none |
 
@@ -110,24 +136,27 @@ swallowing pointer-movement events with a `CGEventTap` — would require
 Accessibility access, and detaching the pointer achieves the same thing with a
 plain CoreGraphics call.
 
-`MultitouchSupport` and `DisplayServices` are private frameworks, so they are
-loaded with `dlopen`/`dlsym` rather than linked. If a future macOS moves or
+`MultitouchSupport`, `DisplayServices` and `CoreBrightness` are private
+frameworks, so they are loaded at runtime rather than linked. If a future macOS moves or
 changes them, EdgeDial reports the problem in its menu instead of failing to
 launch.
 
 ## Troubleshooting
 
 ```bash
-.build/release/EdgeDial --probe
+.build/release/EdgeDial --probe           # trackpad data + what's readable
+.build/release/EdgeDial --test-controls   # drive every control and restore it
 ```
 
-Prints whether the trackpad is readable, whether brightness and volume can be
-driven, and ten seconds of live finger coordinates. Useful after a macOS update.
+`--probe` prints ten seconds of live finger coordinates. `--test-controls`
+writes two values to each control and puts the original back, which is the only
+way to confirm the private frameworks still behave after a macOS update.
 
 ## Limits
 
-- Brightness applies to the built-in display. External monitors need DDC, which
-  EdgeDial doesn't do.
+- Brightness applies to the built-in display. External monitors need DDC over
+  I2C, which EdgeDial doesn't do yet.
+- Keyboard backlight and Night Shift apply to the built-in keyboard and display.
 - Private frameworks mean this can't ship on the App Store, and a future macOS
   could change them.
 - Built and tested on a MacBook Air (M1) running macOS 26.3.

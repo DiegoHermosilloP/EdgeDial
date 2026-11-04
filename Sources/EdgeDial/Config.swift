@@ -3,12 +3,16 @@ import Foundation
 enum DialAction: String, Codable, CaseIterable {
     case brightness
     case volume
+    case keyboardBacklight
+    case nightShift
     case none
 
     var displayName: String {
         switch self {
-        case .brightness: return "Brightness"
+        case .brightness: return "Screen Brightness"
         case .volume: return "Volume"
+        case .keyboardBacklight: return "Keyboard Backlight"
+        case .nightShift: return "Night Shift Warmth"
         case .none: return "Nothing"
         }
     }

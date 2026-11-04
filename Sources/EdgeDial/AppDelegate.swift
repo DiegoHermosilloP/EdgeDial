@@ -55,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(actionSubmenu(title: "Left Edge", side: .left))
         menu.addItem(actionSubmenu(title: "Right Edge", side: .right))
         menu.addItem(holdDelaySubmenu())
+        menu.addItem(fingerCountSubmenu())
 
         menu.addItem(.separator())
 
@@ -168,16 +169,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return parent
     }
 
+    private func fingerCountSubmenu() -> NSMenuItem {
+        let current = controller.config.requiredFingerCount
+        let parent = NSMenuItem(
+            title: "Fingers: \(current)", action: nil, keyEquivalent: "")
+        parent.tag = Tag.fingers.rawValue
+
+        let labels = [
+            1: "One finger — Default",
+            2: "Two fingers — far fewer false triggers",
+            3: "Three fingers",
+        ]
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        for count in 1...3 {
+            let item = NSMenuItem(
+                title: labels[count] ?? "\(count)", action: #selector(pickFingerCount(_:)),
+                keyEquivalent: "")
+            item.target = self
+            item.state = count == current ? .on : .off
+            item.representedObject = count
+            submenu.addItem(item)
+        }
+        parent.submenu = submenu
+        return parent
+    }
+
     private func actionSubmenu(title: String, side: DialSide) -> NSMenuItem {
         let current = side == .left ? controller.config.leftAction : controller.config.rightAction
         let parent = NSMenuItem(title: "\(title): \(current.displayName)", action: nil, keyEquivalent: "")
         parent.tag = (side == .left ? Tag.leftAction : Tag.rightAction).rawValue
 
         let submenu = NSMenu()
+        submenu.autoenablesItems = false
         for action in DialAction.allCases {
+            let available = controller.isAvailable(action)
             let item = NSMenuItem(
-                title: action.displayName, action: #selector(pickAction(_:)), keyEquivalent: "")
+                title: available ? action.displayName : "\(action.displayName) (unavailable)",
+                action: #selector(pickAction(_:)), keyEquivalent: "")
             item.target = self
+            item.isEnabled = available
             item.state = action == current ? .on : .off
             item.representedObject = [
                 "side": side == .left ? "left" : "right",
@@ -191,16 +222,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private enum Tag: Int {
         case enabled = 1, invert, hud, haptics, freeze, login
-        case leftAction, rightAction, holdDelay, status
+        case leftAction, rightAction, holdDelay, fingers, status
     }
 
     private func statusLine() -> String {
         if let error = controller.startupError { return "Trackpad unavailable — \(error)" }
-        let available = controller.availability()
-        var parts: [String] = []
-        if !available.brightness { parts.append("brightness unavailable") }
-        if !available.volume { parts.append("volume unavailable") }
-        return parts.isEmpty ? "Ready" : parts.joined(separator: ", ").capitalizedFirst
+        let inUse = Set([controller.config.leftAction, controller.config.rightAction])
+        let broken = inUse.filter { !controller.isAvailable($0) }.map(\.displayName).sorted()
+        guard !broken.isEmpty else { return "Ready" }
+        return "\(broken.joined(separator: " and ")) unavailable"
     }
 
     private func refreshMenu() {
@@ -256,6 +286,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.runModal()
         }
         refreshMenu()
+    }
+
+    @objc private func pickFingerCount(_ sender: NSMenuItem) {
+        guard let count = sender.representedObject as? Int else { return }
+        mutate { $0.requiredFingerCount = count }
     }
 
     @objc private func pickHoldDelay(_ sender: NSMenuItem) {
