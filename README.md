@@ -66,6 +66,7 @@ Most things are in the menu bar:
 | --- | --- |
 | **Enabled** | Master switch |
 | **Left Edge** / **Right Edge** | Brightness, Volume, or Nothing |
+| **Hold Delay** | How long a finger must rest before a dial arms, 150–700 ms |
 | **Slide Up Decreases** | Flips the direction |
 | **Show Indicator** | EdgeDial's own on-screen level bar |
 | **Haptic Feedback** | Tick when a dial arms and at the ends of the range |
@@ -79,14 +80,20 @@ Everything else lives in
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `leftZoneWidth` / `rightZoneWidth` | `0.18` | Edge strip width, as a fraction of trackpad width |
-| `dwellMilliseconds` | `300` | How long the finger must rest before a dial arms |
-| `dwellJitter` | `0.035` | How far it may drift during the dwell before being disqualified |
+| `dwellJitter` | `0.035` | How far the finger may drift during the dwell before being disqualified |
 | `sensitivity` | `1.5` | Range covered by sliding the full height of the trackpad |
 | `requiredFingerCount` | `1` | Fingers the gesture needs; `2` makes accidental arming nearly impossible |
 | `minimumTouchSize` | `0.08` | Rejects stray brushes |
 | `hudSegments` | `16` | Segments in the level bar; `0` draws a continuous bar |
 
-If a dial arms when you didn't mean it, raise `dwellMilliseconds` or lower
+**Edit Settings File…** opens the file in TextEdit specifically, rather than
+handing a `.json` to whatever happens to claim that extension — which is Xcode
+on a developer's Mac, but could as easily be Excel, Chrome or Notes, and on a
+Mac with no handler registered gives an error instead of a file. TextEdit ships
+with every macOS install. Option-click the same row for **Reveal Settings in
+Finder** if you'd rather use your own editor.
+
+If a dial arms when you didn't mean it, raise **Hold Delay** or lower
 `leftZoneWidth`. If it's hard to trigger, do the opposite.
 
 ## How it works

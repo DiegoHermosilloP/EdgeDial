@@ -236,3 +236,38 @@ final class GestureEngineTests: XCTestCase {
         XCTAssertTrue(MultitouchDevice.verifyLayout(), "MTTouch must stay 96 bytes")
     }
 }
+
+/// The hold-delay submenu has to stay honest about what is currently in effect,
+/// including values that only the settings file can produce.
+final class HoldDelayMenuTests: XCTestCase {
+    func testPresetValueIsPresentExactlyOnce() {
+        let options = AppDelegate.holdDelayOptions(current: 300)
+        XCTAssertEqual(options.filter { $0.value == 300 }.count, 1)
+        XCTAssertEqual(options.count, 7, "a preset value must not add a Custom row")
+    }
+
+    func testHandEditedValueGetsItsOwnRow() {
+        let options = AppDelegate.holdDelayOptions(current: 275)
+        XCTAssertEqual(options.count, 8)
+        let custom = options.first { $0.value == 275 }
+        XCTAssertNotNil(custom)
+        XCTAssertTrue(custom?.label.contains("Custom") == true)
+    }
+
+    func testOptionsStaySortedWithACustomValue() {
+        let values = AppDelegate.holdDelayOptions(current: 275).map(\.value)
+        XCTAssertEqual(values, values.sorted())
+    }
+
+    func testEveryPresetSurvivesConfigSanitising() {
+        // A preset the sanitiser would clamp would check a row that is not
+        // what actually took effect.
+        for preset in AppDelegate.holdDelayOptions(current: 300) {
+            var config = Config()
+            config.dwellMilliseconds = preset.value
+            XCTAssertEqual(
+                config.sanitized.dwellMilliseconds, preset.value,
+                "preset \(preset.label) is outside the allowed range")
+        }
+    }
+}

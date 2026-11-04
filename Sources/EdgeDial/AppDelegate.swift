@@ -54,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(actionSubmenu(title: "Left Edge", side: .left))
         menu.addItem(actionSubmenu(title: "Right Edge", side: .right))
+        menu.addItem(holdDelaySubmenu())
 
         menu.addItem(.separator())
 
@@ -93,10 +94,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         login.tag = Tag.login.rawValue
         menu.addItem(login)
 
-        let reveal = NSMenuItem(
+        let edit = NSMenuItem(
             title: "Edit Settings File…", action: #selector(editConfig), keyEquivalent: "")
-        reveal.target = self
-        menu.addItem(reveal)
+        edit.target = self
+        // An alternate pairs with the item above only when both carry the same
+        // key equivalent; NSMenuItem defaults this mask to Command, which would
+        // leave the pair mismatched.
+        edit.keyEquivalentModifierMask = []
+        menu.addItem(edit)
+
+        // Option-click for the Finder, for anyone who wants their own editor.
+        let revealInFinder = NSMenuItem(
+            title: "Reveal Settings in Finder", action: #selector(revealConfig), keyEquivalent: "")
+        revealInFinder.target = self
+        revealInFinder.isAlternate = true
+        revealInFinder.keyEquivalentModifierMask = [.option]
+        menu.addItem(revealInFinder)
 
         let reload = NSMenuItem(
             title: "Reload Settings", action: #selector(reloadConfig), keyEquivalent: "r")
@@ -109,6 +122,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quit)
 
         return menu
+    }
+
+    /// Preset dwell times. The gesture is the one setting people actually need
+    /// to tune — too short and dials arm by accident, too long and the gesture
+    /// feels unresponsive — so it belongs in the menu rather than in a file.
+    private static let holdDelayPresets: [(label: String, value: Double)] = [
+        ("150 ms — Hair trigger", 150),
+        ("200 ms — Fast", 200),
+        ("250 ms", 250),
+        ("300 ms — Default", 300),
+        ("400 ms", 400),
+        ("500 ms — Relaxed", 500),
+        ("700 ms — Deliberate", 700),
+    ]
+
+    /// The rows to show for a given current value. A value typed into the
+    /// settings file by hand is not in the preset list, so it is folded in and
+    /// labelled, rather than leaving the submenu with nothing checked.
+    static func holdDelayOptions(current: Double) -> [(label: String, value: Double)] {
+        var presets = holdDelayPresets
+        if !presets.contains(where: { abs($0.value - current) < 0.5 }) {
+            presets.append(("\(Int(current.rounded())) ms — Custom", current))
+            presets.sort { $0.value < $1.value }
+        }
+        return presets
+    }
+
+    private func holdDelaySubmenu() -> NSMenuItem {
+        let current = controller.config.dwellMilliseconds
+        let parent = NSMenuItem(
+            title: "Hold Delay: \(Int(current.rounded())) ms", action: nil, keyEquivalent: "")
+        parent.tag = Tag.holdDelay.rawValue
+
+        let submenu = NSMenu()
+        for preset in AppDelegate.holdDelayOptions(current: current) {
+            let item = NSMenuItem(
+                title: preset.label, action: #selector(pickHoldDelay(_:)), keyEquivalent: "")
+            item.target = self
+            item.state = abs(preset.value - current) < 0.5 ? .on : .off
+            item.representedObject = preset.value
+            submenu.addItem(item)
+        }
+        parent.submenu = submenu
+        return parent
     }
 
     private func actionSubmenu(title: String, side: DialSide) -> NSMenuItem {
@@ -133,7 +190,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private enum Tag: Int {
-        case enabled = 1, invert, hud, haptics, freeze, login, leftAction, rightAction, status
+        case enabled = 1, invert, hud, haptics, freeze, login
+        case leftAction, rightAction, holdDelay, status
     }
 
     private func statusLine() -> String {
@@ -200,12 +258,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshMenu()
     }
 
-    @objc private func editConfig() {
+    @objc private func pickHoldDelay(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? Double else { return }
+        mutate { $0.dwellMilliseconds = value }
+    }
+
+    /// Ensures the file exists before anything is asked to open it.
+    private func ensureConfigFileExists() -> URL {
         let url = Config.fileURL
         if !FileManager.default.fileExists(atPath: url.path) {
             try? controller.config.save()
         }
-        NSWorkspace.shared.open(url)
+        return url
+    }
+
+    @objc private func editConfig() {
+        let url = ensureConfigFileExists()
+
+        // Handing a .json to LaunchServices gives whatever happens to claim the
+        // type: Xcode on a developer's Mac, but it could as easily be Excel,
+        // Chrome or Notes, and on a Mac with no handler at all the user just
+        // gets an error. TextEdit ships with every macOS install, so ask for it
+        // by name and keep the Finder as a backstop.
+        let candidates = [
+            "/System/Applications/TextEdit.app",
+            "/Applications/TextEdit.app",
+        ].map { URL(fileURLWithPath: $0) }
+
+        guard let editor = candidates.first(
+            where: { FileManager.default.fileExists(atPath: $0.path) }
+        ) else {
+            revealConfig()
+            return
+        }
+
+        let options = NSWorkspace.OpenConfiguration()
+        options.activates = true
+        NSWorkspace.shared.open([url], withApplicationAt: editor, configuration: options) {
+            [weak self] _, error in
+            guard error != nil else { return }
+            DispatchQueue.main.async { self?.revealConfig() }
+        }
+    }
+
+    @objc private func revealConfig() {
+        NSWorkspace.shared.activateFileViewerSelecting([ensureConfigFileExists()])
     }
 
     @objc private func reloadConfig() {
