@@ -1,0 +1,17 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build -c release
+      # The gesture engine is pure, so these run fine on a headless runner.
+      - name: Test
+        run: swift test
