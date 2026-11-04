@@ -18,6 +18,11 @@ func runProbe() {
     print("Volume readable: \(volume.isAvailable ? "yes" : "no")" +
           (volume.read().map { ", now \(String(format: "%.2f", $0))" } ?? ""))
 
+    let feedback = VolumeFeedbackSound()
+    print("Volume tick sound: \(feedback.isAvailable ? "loaded" : "NOT FOUND")")
+    print("macOS volume feedback setting: " +
+          (VolumeFeedbackSound.systemFeedbackEnabled ? "on" : "off"))
+
     let device: MultitouchDevice
     do {
         device = try MultitouchDevice()

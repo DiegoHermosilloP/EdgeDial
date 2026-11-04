@@ -78,6 +78,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         haptic.tag = Tag.haptics.rawValue
         menu.addItem(haptic)
 
+        // Say why it will not sound rather than letting the checkmark lie.
+        let mutedBySystem = !VolumeFeedbackSound.systemFeedbackEnabled
+        let sound = NSMenuItem(
+            title: mutedBySystem
+                ? "Volume Sound — off in Sound settings"
+                : "Volume Sound",
+            action: #selector(toggleVolumeSound), keyEquivalent: "")
+        sound.target = self
+        sound.state = controller.config.volumeFeedbackSound ? .on : .off
+        sound.isEnabled = !mutedBySystem
+        sound.tag = Tag.volumeSound.rawValue
+        menu.addItem(sound)
+
         let freeze = NSMenuItem(
             title: "Hold Pointer Still", action: #selector(toggleFreeze), keyEquivalent: "")
         freeze.target = self
@@ -190,7 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private enum Tag: Int {
-        case enabled = 1, invert, hud, haptics, freeze, login
+        case enabled = 1, invert, hud, haptics, volumeSound, freeze, login
         case leftAction, rightAction, holdDelay, status
     }
 
@@ -230,6 +243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleInvert() { mutate { $0.invertDirection.toggle() } }
     @objc private func toggleHUD() { mutate { $0.showHUD.toggle() } }
     @objc private func toggleHaptics() { mutate { $0.hapticFeedback.toggle() } }
+    @objc private func toggleVolumeSound() { mutate { $0.volumeFeedbackSound.toggle() } }
     @objc private func toggleFreeze() { mutate { $0.freezeCursor.toggle() } }
 
     @objc private func pickAction(_ sender: NSMenuItem) {

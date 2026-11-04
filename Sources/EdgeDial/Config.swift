@@ -52,16 +52,70 @@ struct Config: Codable {
     /// Haptic tick when a dial arms and at the ends of the range.
     var hapticFeedback = true
 
+    /// Play the system volume tick as the volume dial crosses each step, the
+    /// way the volume keys do. Also gated on macOS's own "Play feedback when
+    /// volume is changed" setting.
+    var volumeFeedbackSound = true
+
     /// Show EdgeDial's own on-screen indicator.
     var showHUD = true
 
     /// Steps the HUD bar is divided into. 0 draws a continuous bar.
-    var hudSegments = 16
+    var hudSegments = 0
 
     static var fileURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("EdgeDial/config.json")
     }
+
+    init() {}
+
+    // MARK: - Decoding
+    //
+    // Swift's synthesised decoder throws on a missing key even when the
+    // property has a default value, so a settings file written by an older
+    // build would fail to decode the moment a new key is added — and every
+    // setting the user had tuned would silently revert. Decoding each key
+    // independently means old files keep working and unknown keys are ignored.
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled
+        case leftAction, rightAction
+        case leftZoneWidth, rightZoneWidth
+        case dwellMilliseconds, dwellJitter
+        case sensitivity, invertDirection
+        case requiredFingerCount, minimumTouchSize
+        case freezeCursor, hapticFeedback, volumeFeedbackSound
+        case showHUD, hudSegments
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = Config()
+
+        func value<T: Decodable>(_ key: CodingKeys, _ default: T) -> T {
+            (try? container.decodeIfPresent(T.self, forKey: key)) .flatMap { $0 } ?? `default`
+        }
+
+        enabled = value(.enabled, fallback.enabled)
+        leftAction = value(.leftAction, fallback.leftAction)
+        rightAction = value(.rightAction, fallback.rightAction)
+        leftZoneWidth = value(.leftZoneWidth, fallback.leftZoneWidth)
+        rightZoneWidth = value(.rightZoneWidth, fallback.rightZoneWidth)
+        dwellMilliseconds = value(.dwellMilliseconds, fallback.dwellMilliseconds)
+        dwellJitter = value(.dwellJitter, fallback.dwellJitter)
+        sensitivity = value(.sensitivity, fallback.sensitivity)
+        invertDirection = value(.invertDirection, fallback.invertDirection)
+        requiredFingerCount = value(.requiredFingerCount, fallback.requiredFingerCount)
+        minimumTouchSize = value(.minimumTouchSize, fallback.minimumTouchSize)
+        freezeCursor = value(.freezeCursor, fallback.freezeCursor)
+        hapticFeedback = value(.hapticFeedback, fallback.hapticFeedback)
+        volumeFeedbackSound = value(.volumeFeedbackSound, fallback.volumeFeedbackSound)
+        showHUD = value(.showHUD, fallback.showHUD)
+        hudSegments = value(.hudSegments, fallback.hudSegments)
+    }
+
+    // MARK: - Storage
 
     static func load() -> Config {
         guard let data = try? Data(contentsOf: fileURL) else { return Config() }

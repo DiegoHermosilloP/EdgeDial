@@ -6,6 +6,7 @@ import CoreGraphics
 final class DialController: GestureEngineDelegate {
     private let engine: GestureEngine
     private let hud = HUD()
+    private let volumeSound = VolumeFeedbackSound()
     private let brightness = BrightnessControl()
     private let volume = VolumeControl()
     private let noop = NoopControl()
@@ -20,6 +21,8 @@ final class DialController: GestureEngineDelegate {
     /// Without it, a failed read would leave slides writing a stale value.
     private var armedAction: DialAction?
     private var didHitLimit = false
+    /// Which sixteenth the volume was on when a tick last played.
+    private var lastVolumeStep: Int?
     private var cursorFrozen = false
 
     private(set) var config: Config
@@ -120,6 +123,12 @@ final class DialController: GestureEngineDelegate {
         (brightness.isAvailable, volume.isAvailable)
     }
 
+    /// Whether the volume tick can play at all: the clip has to exist and
+    /// macOS's own feedback setting has to be on.
+    var volumeSoundAvailable: Bool {
+        volumeSound.isAvailable && VolumeFeedbackSound.systemFeedbackEnabled
+    }
+
     func gestureEngine(_ engine: GestureEngine, didArm side: DialSide) {
         let action = action(for: side)
         let control = control(for: action)
@@ -130,6 +139,7 @@ final class DialController: GestureEngineDelegate {
 
         armedAction = action
         workingValue = current
+        lastVolumeStep = action == .volume ? VolumeStep.index(for: current) : nil
         didHitLimit = false
 
         if config.freezeCursor { freezeCursor() }
@@ -157,6 +167,19 @@ final class DialController: GestureEngineDelegate {
         didHitLimit = atLimit
 
         control.write(workingValue)
+
+        // One tick per step crossed, like holding a volume key down. Gated on
+        // the system setting too, so turning feedback off in Sound settings
+        // silences EdgeDial as well.
+        if action == .volume, config.volumeFeedbackSound,
+           VolumeFeedbackSound.systemFeedbackEnabled {
+            let step = VolumeStep.index(for: workingValue)
+            if step != lastVolumeStep {
+                lastVolumeStep = step
+                volumeSound.play()
+            }
+        }
+
         if config.showHUD {
             hud.show(action: action, value: workingValue, segments: config.hudSegments)
         }
@@ -164,6 +187,7 @@ final class DialController: GestureEngineDelegate {
 
     func gestureEngine(_ engine: GestureEngine, didEnd side: DialSide) {
         armedAction = nil
+        lastVolumeStep = nil
         unfreezeCursor()
         hud.scheduleHide()
     }

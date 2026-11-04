@@ -62,7 +62,7 @@ final class HUD {
             barView.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 18),
             barView.trailingAnchor.constraint(equalTo: blur.trailingAnchor, constant: -22),
             barView.centerYAnchor.constraint(equalTo: blur.centerYAnchor),
-            barView.heightAnchor.constraint(equalToConstant: 8),
+            barView.heightAnchor.constraint(equalToConstant: 10),
         ])
 
         panel.contentView = blur

@@ -271,3 +271,88 @@ final class HoldDelayMenuTests: XCTestCase {
         }
     }
 }
+
+/// A settings file outlives the build that wrote it, so decoding has to cope
+/// with keys that did not exist yet and keys that no longer do.
+final class ConfigCompatibilityTests: XCTestCase {
+    private func decode(_ json: String) throws -> Config {
+        try JSONDecoder().decode(Config.self, from: Data(json.utf8))
+    }
+
+    func testFileFromAnOlderBuildKeepsItsSettings() throws {
+        // No volumeFeedbackSound key: this is what upgrading looks like.
+        let config = try decode(#"""
+            {"dwellMilliseconds": 500, "leftAction": "volume", "sensitivity": 3.0}
+        """#)
+        XCTAssertEqual(config.dwellMilliseconds, 500, "a tuned value must survive")
+        XCTAssertEqual(config.leftAction, .volume)
+        XCTAssertEqual(config.sensitivity, 3.0)
+        XCTAssertTrue(config.volumeFeedbackSound, "a new key falls back to its default")
+    }
+
+    func testEmptyObjectYieldsDefaults() throws {
+        let config = try decode("{}")
+        XCTAssertEqual(config.dwellMilliseconds, Config().dwellMilliseconds)
+        XCTAssertEqual(config.leftAction, .brightness)
+        XCTAssertEqual(config.rightAction, .volume)
+    }
+
+    func testUnknownKeysAreIgnored() throws {
+        // A key from a build that was later reverted must not break the file.
+        let config = try decode(#"{"enabled": false, "keyboardBacklightStep": 7}"#)
+        XCTAssertFalse(config.enabled)
+    }
+
+    func testAWronglyTypedValueFallsBackInsteadOfWipingTheFile() throws {
+        let config = try decode(#"{"dwellMilliseconds": "fast", "sensitivity": 2.5}"#)
+        XCTAssertEqual(config.dwellMilliseconds, Config().dwellMilliseconds)
+        XCTAssertEqual(config.sensitivity, 2.5, "other keys must still be read")
+    }
+
+    func testRoundTripSurvivesEncoding() throws {
+        var original = Config()
+        original.dwellMilliseconds = 400
+        original.volumeFeedbackSound = false
+        original.hudSegments = 0
+        let data = try JSONEncoder().encode(original)
+        let restored = try JSONDecoder().decode(Config.self, from: data)
+        XCTAssertEqual(restored.dwellMilliseconds, 400)
+        XCTAssertFalse(restored.volumeFeedbackSound)
+        XCTAssertEqual(restored.hudSegments, 0)
+    }
+
+    func testIndicatorDefaultsToAContinuousBar() {
+        XCTAssertEqual(Config().hudSegments, 0)
+    }
+}
+
+/// The tick has to fire once per step, matching what the volume keys do.
+final class VolumeStepTests: XCTestCase {
+    func testMatchesTheSixteenStepsMacOSUses() {
+        XCTAssertEqual(VolumeStep.count, 16)
+        XCTAssertEqual(VolumeStep.index(for: 0), 0)
+        XCTAssertEqual(VolumeStep.index(for: 1), 16)
+    }
+
+    func testAFullSweepCrossesEveryStepExactlyOnce() {
+        var ticks = 0
+        var previous = VolumeStep.index(for: 0)
+        // 400 frames is roughly a slow slide at 120 Hz.
+        for frame in 1...400 {
+            let step = VolumeStep.index(for: Double(frame) / 400)
+            if step != previous { ticks += 1; previous = step }
+        }
+        XCTAssertEqual(ticks, 16, "a 0→1 slide should tick once per step")
+    }
+
+    func testSmallMovementsWithinAStepDoNotTick() {
+        let start = VolumeStep.index(for: 0.50)
+        XCTAssertEqual(VolumeStep.index(for: 0.51), start)
+        XCTAssertEqual(VolumeStep.index(for: 0.52), start)
+    }
+
+    func testValuesOutsideRangeAreClamped() {
+        XCTAssertEqual(VolumeStep.index(for: -5), 0)
+        XCTAssertEqual(VolumeStep.index(for: 5), 16)
+    }
+}

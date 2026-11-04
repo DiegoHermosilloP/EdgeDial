@@ -70,6 +70,7 @@ Most things are in the menu bar:
 | **Slide Up Decreases** | Flips the direction |
 | **Show Indicator** | EdgeDial's own on-screen level bar |
 | **Haptic Feedback** | Tick when a dial arms and at the ends of the range |
+| **Volume Sound** | The system volume tick as the volume dial crosses each step |
 | **Hold Pointer Still** | Pin the cursor during a slide |
 | **Launch at Login** | Start with macOS |
 
@@ -84,7 +85,8 @@ Everything else lives in
 | `sensitivity` | `1.5` | Range covered by sliding the full height of the trackpad |
 | `requiredFingerCount` | `1` | Fingers the gesture needs; `2` makes accidental arming nearly impossible |
 | `minimumTouchSize` | `0.08` | Rejects stray brushes |
-| `hudSegments` | `16` | Segments in the level bar; `0` draws a continuous bar |
+| `hudSegments` | `0` | `0` draws a continuous bar; a positive number splits it into that many segments |
+| `volumeFeedbackSound` | `true` | Also available in the menu |
 
 **Edit Settings File…** opens the file in TextEdit specifically, rather than
 handing a `.json` to whatever happens to claim that extension — which is Xcode
@@ -95,6 +97,22 @@ Finder** if you'd rather use your own editor.
 
 If a dial arms when you didn't mean it, raise **Hold Delay** or lower
 `leftZoneWidth`. If it's hard to trigger, do the opposite.
+
+## The volume tick
+
+The volume keys play a short sound as you hold them down, so you can judge the
+new level by ear without looking. EdgeDial does the same: one tick each time a
+slide crosses one of the sixteen steps macOS divides the volume into.
+
+It plays through `NSSound` rather than `AudioServicesPlaySystemSound`,
+deliberately — `NSSound` goes out through the default output device, so the
+tick is heard *at* the level just set, which is the whole point of it. The clip
+is the system's own (`Media Keys.aif`), read from disk by reference rather than
+bundled, so it always matches whatever the current macOS ships.
+
+It respects **System Settings → Sound → Play feedback when volume is changed**.
+With that off, EdgeDial stays silent too and its menu item says so instead of
+showing a checkmark that does nothing.
 
 ## How it works
 
@@ -122,7 +140,8 @@ launch.
 ```
 
 Prints whether the trackpad is readable, whether brightness and volume can be
-driven, and ten seconds of live finger coordinates. Useful after a macOS update.
+driven, whether the volume tick sound was found, and ten seconds of live finger
+coordinates. Useful after a macOS update.
 
 ## Limits
 
