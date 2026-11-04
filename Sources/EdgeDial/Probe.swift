@@ -3,47 +3,6 @@ import Foundation
 
 /// `EdgeDial --probe` prints what the app can see and do on this machine.
 /// Useful when a macOS update changes something underneath it.
-/// `EdgeDial --test-controls` exercises every control for real: reads it,
-/// writes a couple of values, then puts the original back. The only way to know
-/// a private framework still does what it used to is to drive it.
-func runControlTest() {
-    print("EdgeDial control test")
-    print(String(repeating: "-", count: 56))
-
-    let controls: [(String, LevelControl)] = [
-        ("Screen brightness", BrightnessControl()),
-        ("Volume", VolumeControl()),
-        ("Keyboard backlight", KeyboardBacklightControl()),
-        ("Night Shift warmth", NightShiftControl()),
-    ]
-
-    for (name, control) in controls {
-        guard control.isAvailable, let original = control.read() else {
-            print("\(name): unavailable on this Mac")
-            continue
-        }
-        print(String(format: "%@: starts at %.2f", name, original))
-
-        var results: [String] = []
-        for target in [0.25, 0.75] {
-            control.write(target)
-            Thread.sleep(forTimeInterval: 0.35)
-            let readBack = control.read() ?? -1
-            let ok = abs(readBack - target) < 0.08
-            results.append(String(format: "wrote %.2f read %.2f %@", target, readBack, ok ? "OK" : "MISMATCH"))
-        }
-
-        control.write(original)
-        Thread.sleep(forTimeInterval: 0.35)
-        let restored = control.read() ?? -1
-        print("   " + results.joined(separator: " | "))
-        print(String(format: "   restored to %.2f %@", restored,
-                     abs(restored - original) < 0.08 ? "OK" : "WARN"))
-    }
-    print(String(repeating: "-", count: 56))
-    print("Done. Anything marked MISMATCH means that control is not responding.")
-}
-
 func runProbe() {
     print("EdgeDial probe")
     print(String(repeating: "-", count: 56))

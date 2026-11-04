@@ -128,11 +128,7 @@ final class HUD {
         let name: String
         switch action {
         case .brightness:
-            name = value < 0.5 ? "sun.min.fill" : "sun.max.fill"
-        case .keyboardBacklight:
-            name = value <= 0.001 ? "keyboard" : "keyboard.badge.eye"
-        case .nightShift:
-            name = value <= 0.001 ? "moon" : "moon.fill"
+            name = value < 0.34 ? "sun.min.fill" : (value < 0.67 ? "sun.max.fill" : "sun.max.fill")
         case .volume:
             if value <= 0.001 {
                 name = "speaker.slash.fill"

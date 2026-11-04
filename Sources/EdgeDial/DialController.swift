@@ -8,8 +8,6 @@ final class DialController: GestureEngineDelegate {
     private let hud = HUD()
     private let brightness = BrightnessControl()
     private let volume = VolumeControl()
-    private let keyboardBacklight = KeyboardBacklightControl()
-    private let nightShift = NightShiftControl()
     private let noop = NoopControl()
 
     private var device: MultitouchDevice?
@@ -113,15 +111,13 @@ final class DialController: GestureEngineDelegate {
         switch action {
         case .brightness: return brightness
         case .volume: return volume
-        case .keyboardBacklight: return keyboardBacklight
-        case .nightShift: return nightShift
         case .none: return noop
         }
     }
 
-    /// Whether this machine can actually drive the given action.
-    func isAvailable(_ action: DialAction) -> Bool {
-        action == .none || control(for: action).isAvailable
+    /// What each control reports it can actually do on this machine.
+    func availability() -> (brightness: Bool, volume: Bool) {
+        (brightness.isAvailable, volume.isAvailable)
     }
 
     func gestureEngine(_ engine: GestureEngine, didArm side: DialSide) {
